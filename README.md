@@ -4,7 +4,7 @@ A distributed key-value store built from scratch in Python.
 
 ## Features (in progress)
 - [x] In-memory KV store with HTTP API
-- [ ] Write-Ahead Log for crash recovery
+- [x] Write-Ahead Log for crash recovery
 - [ ] TTL expiry + LRU eviction
 - [ ] Primary-replica replication
 - [ ] Leader election + heartbeats
