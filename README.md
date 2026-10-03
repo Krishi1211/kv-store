@@ -1,13 +1,13 @@
 # kv-store
 
-A distributed key-value store built from scratch in Python.
+A Raft-based distributed key-value store built from scratch in Python.
 
 ## Features
 - [x] In-memory KV store with HTTP API
 - [x] Write-Ahead Log for crash recovery
 - [x] TTL expiry + LRU eviction
-- [x] Primary-replica replication
-- [x] Leader election + heartbeats
+- [x] Log replication with majority commit (Raft)
+- [x] Leader election with terms and votes (Raft)
 - [x] Benchmark suite + latency dashboard
 
 ## Stack
@@ -33,10 +33,31 @@ python app.py --port 8000 --peers $PEERS
 python app.py --port 8001 --peers $PEERS
 python app.py --port 8002 --peers $PEERS
 ```
-The lowest address starts as primary and replicates every write to the others.
-Replicas reject writes with a 403 that names the current primary. If the primary
-stops sending heartbeats for 3 seconds, the highest-priority live replica promotes
-itself. `GET /role` shows each node's role. `--capacity` sets the LRU size (default 10000).
+`GET /role` on any node shows its Raft state, term, leader, log length and
+commit index. `--capacity` sets the LRU size (default 10000).
+
+## Consensus (Raft)
+Replication and leader election follow the Raft algorithm (`raft.py`):
+
+- **Election:** a follower that hears no heartbeat for a randomized 1-2 s
+  starts an election for a new term. A node votes once per term, and only for
+  a candidate whose log is at least as up to date as its own.
+- **Replication:** the leader appends each write to its log and sends it to
+  followers with `AppendEntries`. The write is acknowledged to the client only
+  after a majority has stored it, then applied to the in-memory store.
+- **Durability:** each node persists its term and vote (`raft_<port>.json`) and
+  its log (`raft_<port>.log`, the write-ahead log) with fsync before replying.
+- **Catch-up:** a node that was down or has a diverging log is brought back in
+  line by the leader backing up to the last matching entry and resending.
+- **Safety:** writes to a follower return 403 with the leader's address; a
+  leader that cannot reach a majority returns 503 instead of acknowledging.
+
+Reads are served from the local node and can be slightly stale on a follower.
+Not implemented: log compaction/snapshots and cluster membership changes.
+
+```bash
+python test_raft.py    # 3-node end-to-end test: failover, catch-up, quorum loss, restart
+```
 
 ## Benchmark
 ```bash

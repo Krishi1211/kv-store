@@ -25,3 +25,38 @@ def wal_replay():
             elif entry["op"] == "delete":
                 store.pop(entry["key"], None)
     return store
+
+
+# ---- Raft log persistence ----------------------------------------------------
+# The Raft log is the write-ahead log: one JSON entry per line, fsynced before
+# the node answers the RPC that produced it.
+
+def wal_append_entry(entry):
+    with open(WAL_FILE, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+def wal_load():
+    entries = []
+    if not os.path.exists(WAL_FILE):
+        return entries
+    with open(WAL_FILE, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                break  # torn final write from a crash: ignore it and everything after
+    return entries
+
+def wal_rewrite(entries):
+    tmp = WAL_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        for entry in entries:
+            f.write(json.dumps(entry) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, WAL_FILE)
