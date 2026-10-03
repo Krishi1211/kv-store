@@ -3,6 +3,11 @@ import json
 
 WAL_FILE = "wal.log"
 
+def set_wal_file(filename):
+    global WAL_FILE
+    WAL_FILE = filename
+
+
 def wal_append(operation, key, value=None):
     with open(WAL_FILE, "a") as f:
         entry = {"op": operation, "key": key, "value": value}

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distributed KV Store Latency Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --primary: #3b82f6;
+            --primary-glow: rgba(59, 130, 246, 0.15);
+            --secondary: #10b981;
+            --secondary-glow: rgba(16, 185, 129, 0.15);
+            --danger: #ef4444;
+            --border: #334155;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            padding: 2rem;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            margin-bottom: 2rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(to right, #60a5fa, #34d399);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .timestamp {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .grid-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            border-color: #475569;
+        }
+
+        .card-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        .card-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .card-desc {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .chart-container {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            height: 400px;
+            position: relative;
+        }
+
+        .grid-charts {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .dot-set { background-color: var(--primary); }
+        .dot-get { background-color: var(--secondary); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>Antigravity Distributed KV Store</h1>
+                <p style="color: var(--text-muted); margin-top: 0.25rem;">Performance & Latency Benchmark Results</p>
+            </div>
+            <div class="timestamp">Executed on: <span id="timestamp"></span></div>
+        </header>
+
+        <div class="section-title"><span class="dot dot-set"></span> SET (Write) Performance</div>
+        <div class="grid-stats">
+            <div class="card">
+                <div class="card-title">Throughput</div>
+                <div class="card-value" id="set-throughput" style="color: var(--primary);">0 req/s</div>
+                <div class="card-desc">Requests completed per second</div>
+            </div>
+            <div class="card">
+                <div class="card-title">p50 Latency</div>
+                <div class="card-value" id="set-p50">0.00 ms</div>
+                <div class="card-desc">50% of requests are faster than this</div>
+            </div>
+            <div class="card">
+                <div class="card-title">p95 Latency</div>
+                <div class="card-value" id="set-p95">0.00 ms</div>
+                <div class="card-desc">95% of requests are faster than this</div>
+            </div>
+            <div class="card">
+                <div class="card-title">p99 Latency</div>
+                <div class="card-value" id="set-p99" style="color: #f59e0b;">0.00 ms</div>
+                <div class="card-desc">99% of requests are faster than this</div>
+            </div>
+        </div>
+
+        <div class="section-title"><span class="dot dot-get"></span> GET (Read) Performance</div>
+        <div class="grid-stats">
+            <div class="card">
+                <div class="card-title">Throughput</div>
+                <div class="card-value" id="get-throughput" style="color: var(--secondary);">0 req/s</div>
+                <div class="card-desc">Requests completed per second</div>
+            </div>
+            <div class="card">
+                <div class="card-title">p50 Latency</div>
+                <div class="card-value" id="get-p50">0.00 ms</div>
+                <div class="card-desc">50% of requests are faster than this</div>
+            </div>
+            <div class="card">
+                <div class="card-title">p95 Latency</div>
+                <div class="card-value" id="get-p95">0.00 ms</div>
+                <div class="card-desc">95% of requests are faster than this</div>
+            </div>
+            <div class="card">
+                <div class="card-title">p99 Latency</div>
+                <div class="card-value" id="get-p99" style="color: #f59e0b;">0.00 ms</div>
+                <div class="card-desc">99% of requests are faster than this</div>
+            </div>
+        </div>
+
+        <div class="grid-charts">
+            <div class="chart-container">
+                <canvas id="percentileChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="timelineChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const rawData = {"set_latencies": [9.551048278808594, 2.5560855865478516, 3.930807113647461, 3.506898880004883, 9.476184844970703, 2.7909278869628906, 5.247354507446289, 2.4509429931640625, 3.541231155395508, 4.534006118774414, 5.869150161743164, 3.681182861328125, 2.5141239166259766, 3.0901432037353516, 3.1511783599853516, 6.489753723144531, 3.6542415618896484, 2.536773681640625, 3.860950469970703, 3.042936325073242, 4.282712936401367, 2.6378631591796875, 3.1728744506835938, 2.579927444458008, 3.203868865966797, 4.585981369018555, 2.619028091430664, 2.8228759765625, 4.112005233764648, 2.7360916137695312, 2.7179718017578125, 6.136178970336914, 2.873659133911133, 2.86102294921875, 3.8089752197265625, 2.572774887084961, 2.635955810546875, 3.9377212524414062, 3.5622119903564453, 2.707958221435547, 7.34400749206543, 2.7899742126464844, 4.017829895019531, 2.480030059814453, 2.8820037841796875, 4.6291351318359375, 3.009796142578125, 3.345966339111328, 3.268003463745117, 3.0450820922851562, 2.8679370880126953, 2.7289390563964844, 3.529071807861328, 2.7480125427246094, 3.214120864868164, 2.6412010192871094, 4.120111465454102, 2.833843231201172, 2.4340152740478516, 3.103017807006836, 3.6182403564453125, 3.019094467163086, 7.473945617675781, 4.464149475097656, 2.7801990509033203, 4.214048385620117, 3.197908401489258, 4.602909088134766, 3.271341323852539, 2.6009082794189453, 2.9649734497070312, 2.689838409423828, 4.189968109130859, 2.86102294921875, 2.9900074005126953, 2.9129981994628906, 3.637075424194336, 3.4477710723876953, 2.6869773864746094, 5.203962326049805, 4.045724868774414, 2.649068832397461, 2.769947052001953, 3.159046173095703, 3.1960010528564453, 4.3659210205078125, 3.1130313873291016, 3.767728805541992, 3.4530162811279297, 2.6700496673583984, 3.6940574645996094, 3.227710723876953, 3.3512115478515625, 5.266904830932617, 2.763032913208008, 2.7163028717041016, 6.168127059936523, 5.230188369750977, 3.690958023071289, 2.635955810546875], "get_latencies": [1.27410888671875, 0.7278919219970703, 0.7488727569580078, 0.7560253143310547, 0.7359981536865234, 0.8602142333984375, 0.7979869842529297, 0.8249282836914062, 0.8451938629150391, 0.7750988006591797, 3.0601024627685547, 0.8230209350585938, 1.226186752319336, 1.4946460723876953, 0.8299350738525391, 0.9479522705078125, 0.7379055023193359, 0.7281303405761719, 1.9609928131103516, 0.8180141448974609, 1.1229515075683594, 0.7359981536865234, 0.7421970367431641, 1.2159347534179688, 0.7238388061523438, 0.7050037384033203, 0.8640289306640625, 0.7569789886474609, 1.1188983917236328, 0.6589889526367188, 0.6830692291259766, 0.7727146148681641, 0.7507801055908203, 0.7281303405761719, 0.9341239929199219, 0.7517337799072266, 0.7929801940917969, 0.6921291351318359, 0.7450580596923828, 0.8871555328369141, 1.1448860168457031, 0.7607936859130859, 0.8387565612792969, 1.89208984375, 0.7979869842529297, 1.8711090087890625, 1.1687278747558594, 0.7600784301757812, 1.0607242584228516, 0.7688999176025391, 0.7069110870361328, 0.8578300476074219, 0.7479190826416016, 1.4793872833251953, 0.7309913635253906, 1.954793930053711, 0.7097721099853516, 0.7469654083251953, 1.3010501861572266, 0.8690357208251953, 0.8208751678466797, 0.6811618804931641, 0.7710456848144531, 1.3399124145507812, 0.7188320159912109, 0.7338523864746094, 0.6999969482421875, 1.196146011352539, 1.2359619140625, 0.701904296875, 0.9868144989013672, 0.86212158203125, 1.0428428649902344, 0.9322166442871094, 0.9570121765136719, 1.2760162353515625, 0.8540153503417969, 2.0668506622314453, 0.9291172027587891, 0.8490085601806641, 3.795146942138672, 1.058816909790039, 3.640890121459961, 0.8299350738525391, 1.5087127685546875, 0.7388591766357422, 1.0340213775634766, 0.6830692291259766, 0.7870197296142578, 0.6959438323974609, 0.8449554443359375, 1.2810230255126953, 1.3060569763183594, 0.9779930114746094, 0.9598731994628906, 0.7481575012207031, 0.9772777557373047, 0.7612705230712891, 0.7970333099365234, 0.9768009185791016], "set_stats": {"p50": 3.079533576965332, "p95": 5.831301212310789, "p99": 8.735833168029783, "min": 2.1848678588867188, "max": 28.10502052307129, "avg": 3.5013883113861084, "throughput": 285.5088874707509, "success": 1000, "failures": 0, "total_time_sec": 3.5025179386138916}, "get_stats": {"p50": 0.8280277252197266, "p95": 1.585602760314941, "p99": 2.4213671684265137, "min": 0.6499290466308594, "max": 3.795146942138672, "avg": 0.9581146240234375, "throughput": 1041.7403601915134, "success": 1000, "failures": 0, "total_time_sec": 0.9599320888519287}, "timestamp": "2026-07-18 17:54:37"};
+        
+        document.getElementById('timestamp').innerText = rawData.timestamp;
+        
+        // Populate SET Stats
+        document.getElementById('set-throughput').innerText = rawData.set_stats.throughput.toFixed(2) + ' req/s';
+        document.getElementById('set-p50').innerText = rawData.set_stats.p50.toFixed(2) + ' ms';
+        document.getElementById('set-p95').innerText = rawData.set_stats.p95.toFixed(2) + ' ms';
+        document.getElementById('set-p99').innerText = rawData.set_stats.p99.toFixed(2) + ' ms';
+        
+        // Populate GET Stats
+        document.getElementById('get-throughput').innerText = rawData.get_stats.throughput.toFixed(2) + ' req/s';
+        document.getElementById('get-p50').innerText = rawData.get_stats.p50.toFixed(2) + ' ms';
+        document.getElementById('get-p95').innerText = rawData.get_stats.p95.toFixed(2) + ' ms';
+        document.getElementById('get-p99').innerText = rawData.get_stats.p99.toFixed(2) + ' ms';
+
+        // Chart.js Configuration
+        const ctxPercentile = document.getElementById('percentileChart').getContext('2d');
+        const percentileChart = new Chart(ctxPercentile, {
+            type: 'bar',
+            data: {
+                labels: ['Min', 'Average', 'p50 (Median)', 'p95', 'p99', 'Max'],
+                datasets: [
+                    {
+                        label: 'SET (Write) Latency (ms)',
+                        data: [
+                            rawData.set_stats.min,
+                            rawData.set_stats.avg,
+                            rawData.set_stats.p50,
+                            rawData.set_stats.p95,
+                            rawData.set_stats.p99,
+                            rawData.set_stats.max
+                        ],
+                        backgroundColor: '#3b82f6',
+                        borderColor: '#2563eb',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'GET (Read) Latency (ms)',
+                        data: [
+                            rawData.get_stats.min,
+                            rawData.get_stats.avg,
+                            rawData.get_stats.p50,
+                            rawData.get_stats.p95,
+                            rawData.get_stats.p99,
+                            rawData.get_stats.max
+                        ],
+                        backgroundColor: '#10b981',
+                        borderColor: '#059669',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Latency Metrics Comparison',
+                        color: '#f8fafc',
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    legend: {
+                        labels: { color: '#f8fafc' }
+                    }
+                },
+                scales: {
+                    y: {
+                        title: { display: true, text: 'Latency (ms)', color: '#94a3b8' },
+                        grid: { color: '#334155' },
+                        ticks: { color: '#94a3b8' },
+                        type: 'logarithmic'
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#94a3b8' }
+                    }
+                }
+            }
+        });
+
+        const ctxTimeline = document.getElementById('timelineChart').getContext('2d');
+        const labels = Array.from({ length: rawData.set_latencies.length }, (_, i) => `${(i * 10).toFixed(0)}%`);
+        const timelineChart = new Chart(ctxTimeline, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'SET Latency (ms)',
+                        data: rawData.set_latencies,
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.1,
+                        fill: true
+                    },
+                    {
+                        label: 'GET Latency (ms)',
+                        data: rawData.get_latencies,
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        tension: 0.1,
+                        fill: true
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Latency Profile over Benchmark Execution',
+                        color: '#f8fafc',
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    legend: {
+                        labels: { color: '#f8fafc' }
+                    }
+                },
+                scales: {
+                    y: {
+                        title: { display: true, text: 'Latency (ms)', color: '#94a3b8' },
+                        grid: { color: '#334155' },
+                        ticks: { color: '#94a3b8' }
+                    },
+                    x: {
+                        title: { display: true, text: 'Benchmark Progress', color: '#94a3b8' },
+                        grid: { display: false },
+                        ticks: { color: '#94a3b8' }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>

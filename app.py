@@ -1,12 +1,15 @@
 from flask import Flask, request, jsonify
-from wal import wal_append, wal_replay
+from wal import wal_append, wal_replay, set_wal_file
 from collections import OrderedDict
 import time
 import threading
+import argparse
+from replication import replication_bp, NodeState, is_primary, replicate_write
+from election import election_bp, start_election_threads
 
 app = Flask(__name__)
 
-MAX_KEYS = 5  # LRU limit for testing, raise later
+MAX_KEYS = 10000  # default LRU capacity, override with --capacity
 
 class LRUCache:
     def __init__(self, capacity):
@@ -58,21 +61,19 @@ class LRUCache:
 
 store = LRUCache(capacity=MAX_KEYS)
 
-# replay WAL into LRU cache on startup
-raw = wal_replay()
-for k, v in raw.items():
-    store.set(k, v)
-print(f"Restored {len(raw)} keys from WAL")
-
+# WAL replay will be executed on startup after port configuration
 
 @app.route("/set", methods=["POST"])
 def set_key():
+    if not is_primary():
+        return jsonify({"error": f"Write rejected: Node is a read-only replica. Current primary: {NodeState.primary_address}"}), 403
     data = request.json
     if not data or "key" not in data or "value" not in data:
         return jsonify({"error": "key and value required"}), 400
     ttl = data.get("ttl")
     wal_append("set", data["key"], data["value"])
     store.set(data["key"], data["value"], ttl_seconds=ttl)
+    replicate_write("set", data["key"], data["value"], ttl)
     return jsonify({"ok": True})
 
 @app.route("/get", methods=["GET"])
@@ -87,16 +88,65 @@ def get_key():
 
 @app.route("/delete", methods=["DELETE"])
 def delete_key():
+    if not is_primary():
+        return jsonify({"error": f"Write rejected: Node is a read-only replica. Current primary: {NodeState.primary_address}"}), 403
     key = request.args.get("key")
     if not key:
         return jsonify({"error": "key required"}), 400
     wal_append("delete", key)
     store.delete(key)
+    replicate_write("delete", key)
     return jsonify({"ok": True})
 
 @app.route("/keys", methods=["GET"])
 def get_keys():
     return jsonify({"keys": store.keys()})
 
+app.register_blueprint(replication_bp)
+app.register_blueprint(election_bp)
+
 if __name__ == "__main__":
-    app.run(port=5000, debug=True)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument("--peers", type=str, default="")
+    parser.add_argument("--capacity", type=int, default=MAX_KEYS)
+    args = parser.parse_args()
+    store.capacity = args.capacity
+
+    port = args.port
+    
+    # Configure NodeState
+    NodeState.store = store
+    NodeState.my_address = f"http://localhost:{port}"
+    NodeState.last_heartbeat_time = time.time()
+    
+    if args.peers:
+        NodeState.peers = sorted([p.strip() for p in args.peers.split(",") if p.strip()])
+    else:
+        NodeState.peers = [NodeState.my_address]
+        
+    if len(NodeState.peers) <= 1:
+        NodeState.role = "primary"
+        NodeState.primary_address = NodeState.my_address
+    else:
+        if NodeState.my_address == NodeState.peers[0]:
+            NodeState.role = "primary"
+            NodeState.primary_address = NodeState.my_address
+        else:
+            NodeState.role = "replica"
+            NodeState.primary_address = NodeState.peers[0]
+
+    print(f"Starting node on port {port} as {NodeState.role.upper()}...")
+    print(f"Peers: {NodeState.peers}")
+
+    # Set up and replay WAL
+    set_wal_file(f"wal_{port}.log")
+    raw = wal_replay()
+    for k, v in raw.items():
+        store.set(k, v)
+    print(f"Restored {len(raw)} keys from WAL ({f'wal_{port}.log'})")
+
+    # Start replication/election threads
+    start_election_threads()
+
+    app.run(port=port, debug=False)
